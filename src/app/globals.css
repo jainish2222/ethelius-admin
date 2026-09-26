@@ -1,0 +1,258 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-heading: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Ethelius brand */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hairline: var(--hairline);
+
+  /* status — always paired with a label, never colour alone */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.72);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.15);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 1.8);
+  --radius-4xl: calc(var(--radius) * 2.2);
+}
+
+/* ── Light: off-white canvas, white glass, near-black ink ── */
+:root {
+  --radius: 0.875rem;
+
+  --background: #f4f6f5;
+  --foreground: #0e1a16;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: #ffffff;
+  --hairline: rgba(14, 26, 22, 0.07);
+
+  --card: rgba(255, 255, 255, 0.78);
+  --card-foreground: #0e1a16;
+  --popover: #ffffff;
+  --popover-foreground: #0e1a16;
+  --primary: #0e1a16;
+  --primary-foreground: #f4fffa;
+  --secondary: rgba(14, 26, 22, 0.045);
+  --secondary-foreground: #0e1a16;
+  --muted: rgba(14, 26, 22, 0.045);
+  --muted-foreground: #5d6d67;
+  --accent: rgba(14, 26, 22, 0.05);
+  --accent-foreground: #0e1a16;
+  --destructive: #d23b36;
+  --border: rgba(14, 26, 22, 0.09);
+  --input: rgba(14, 26, 22, 0.13);
+  --ring: #00c27a;
+
+  --brand: #00e091;
+  --brand-foreground: #03140d;
+  --brand-ink: #0a7a54;
+  --brand-soft: rgba(0, 200, 128, 0.12);
+
+  --success: #0a7a54;
+  --success-soft: rgba(15, 148, 103, 0.12);
+  --warning: #9a5b00;
+  --warning-soft: rgba(237, 161, 0, 0.16);
+  --danger: #c1352f;
+  --danger-soft: rgba(227, 73, 72, 0.12);
+  --info: #1f63b8;
+  --info-soft: rgba(42, 120, 214, 0.12);
+  --neutral: #5d6d67;
+  --neutral-soft: rgba(14, 26, 22, 0.06);
+
+  /* validated chart series (see dataviz validation): invoiced / received */
+  --chart-1: #2a78d6;
+  --chart-2: #0f9467;
+  --chart-grid: rgba(14, 26, 22, 0.07);
+  --chart-axis: #7a8a84;
+
+  --sidebar: rgba(255, 255, 255, 0.6);
+  --sidebar-foreground: #0e1a16;
+  --sidebar-primary: #0e1a16;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(14, 26, 22, 0.05);
+  --sidebar-accent-foreground: #0e1a16;
+  --sidebar-border: rgba(14, 26, 22, 0.07);
+  --sidebar-ring: #00c27a;
+
+  --shadow-soft: 0 1px 2px rgba(14, 26, 22, 0.04), 0 8px 24px -12px rgba(14, 26, 22, 0.12);
+  --shadow-float: 0 24px 60px -20px rgba(14, 26, 22, 0.28);
+  --glow: radial-gradient(1200px 600px at 12% -10%, rgba(0, 224, 145, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(42, 120, 214, 0.06), transparent 60%);
+}
+
+/* ── Dark: near-black canvas, charcoal glass, bright ink ── */
+.dark {
+  --background: #090b0a;
+  --foreground: #eef4f1;
+  --surface: rgba(255, 255, 255, 0.035);
+  --surface-2: #121615;
+  --hairline: rgba(255, 255, 255, 0.06);
+
+  --card: rgba(255, 255, 255, 0.035);
+  --card-foreground: #eef4f1;
+  --popover: #121615;
+  --popover-foreground: #eef4f1;
+  --primary: #00ef99;
+  --primary-foreground: #03140d;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #eef4f1;
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #8d9b96;
+  --accent: rgba(255, 255, 255, 0.06);
+  --accent-foreground: #eef4f1;
+  --destructive: #f06a64;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #00ef99;
+
+  --brand: #00ef99;
+  --brand-foreground: #03140d;
+  --brand-ink: #3cf2ae;
+  --brand-soft: rgba(0, 239, 153, 0.1);
+
+  --success: #3ddc9e;
+  --success-soft: rgba(25, 158, 112, 0.18);
+  --warning: #f2b544;
+  --warning-soft: rgba(201, 133, 0, 0.2);
+  --danger: #ff7b74;
+  --danger-soft: rgba(230, 103, 103, 0.16);
+  --info: #7cb2f2;
+  --info-soft: rgba(57, 135, 229, 0.18);
+  --neutral: #97a5a0;
+  --neutral-soft: rgba(255, 255, 255, 0.07);
+
+  --chart-1: #3987e5;
+  --chart-2: #199e70;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: #7d8b86;
+
+  --sidebar: rgba(255, 255, 255, 0.02);
+  --sidebar-foreground: #eef4f1;
+  --sidebar-primary: #00ef99;
+  --sidebar-primary-foreground: #03140d;
+  --sidebar-accent: rgba(255, 255, 255, 0.05);
+  --sidebar-accent-foreground: #eef4f1;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #00ef99;
+
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --shadow-float: 0 30px 80px -24px rgba(0, 0, 0, 0.8);
+  --glow: radial-gradient(1100px 600px at 10% -12%, rgba(0, 239, 153, 0.08), transparent 60%),
+    radial-gradient(800px 500px at 100% -5%, rgba(57, 135, 229, 0.06), transparent 60%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image: var(--glow);
+    background-attachment: fixed;
+    font-feature-settings: "cv11", "ss01";
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--brand-soft);
+  }
+}
+
+@layer components {
+  /* Frosted card — the base surface of the app */
+  .glass {
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .glass-strong {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-float);
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,850 @@
+// Ethelius Admin — relational model.
+//
+// Money columns are Decimal(14,2). Month-level periods (billing month, payroll month,
+// attendance month) are "YYYY-MM" strings: they sort and range-filter correctly and
+// make one-per-month uniqueness trivial.
+//
+// Financial records are never hard-deleted: they carry `deletedAt` and services filter on it.
+// Salary structures are immutable versions; a revision closes the previous one and adds a new row.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Access control ─────────────────────────────
+
+enum RoleKey {
+  SUPER_ADMIN
+  HR_ADMIN
+  FINANCE_ADMIN
+  PROJECT_MANAGER
+  EMPLOYEE
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  key         RoleKey          @unique
+  name        String
+  description String?
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  module      String
+  description String
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  employeeId   String?   @unique
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions          Session[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  salaryStructures  SalaryStructure[] @relation("SalaryCreatedBy")
+  salaryRevisions   SalaryRevision[]  @relation("SalaryRevisedBy")
+  invoicesCreated   Invoice[]         @relation("InvoiceCreatedBy")
+  paymentsRecorded  Payment[]         @relation("PaymentRecordedBy")
+  payrollsApproved  Payroll[]         @relation("PayrollApprovedBy")
+  payslipsGenerated Payslip[]         @relation("PayslipGeneratedBy")
+  expensesApproved  Expense[]         @relation("ExpenseApprovedBy")
+  expensesSubmitted Expense[]         @relation("ExpenseSubmittedBy")
+  documentsUploaded Document[]        @relation("DocumentUploadedBy")
+  documentsVerified Document[]        @relation("DocumentVerifiedBy")
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ───────────────────────────── Workforce ─────────────────────────────
+
+enum EmploymentType {
+  PERMANENT
+  CONTRACT
+  PROJECT
+  INTERN
+  FREELANCER
+  PART_TIME
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_NOTICE
+  RESIGNED
+  RELIEVED
+  INACTIVE
+}
+
+model Employee {
+  id                    String         @id @default(cuid())
+  employeeCode          String         @unique
+  fullName              String
+  photoPath             String?
+  personalEmail         String?
+  officialEmail         String?        @unique
+  phone                 String?
+  dateOfBirth           DateTime?      @db.Date
+  address               String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  emergencyRelation     String?
+  designation           String
+  department            String
+  experienceYears       Decimal?       @db.Decimal(4, 1)
+  joiningDate           DateTime       @db.Date
+  employmentType        EmploymentType @default(PERMANENT)
+  status                EmployeeStatus @default(ACTIVE)
+  workLocation          String?
+  reportingManagerId    String?
+  reportingManager      Employee?      @relation("ReportingLine", fields: [reportingManagerId], references: [id])
+  directReports         Employee[]     @relation("ReportingLine")
+  noticePeriodDays      Int?
+  exitDate              DateTime?      @db.Date
+  notes                 String?
+
+  // Statutory identifiers — visible only with employee.pii
+  pan       String?
+  uan       String?
+  pfNumber  String?
+  esiNumber String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user                User?
+  bankAccounts        EmployeeBankAccount[]
+  salaryStructures    SalaryStructure[]
+  salaryRevisions     SalaryRevision[]
+  recurringDeductions RecurringDeduction[]
+  assignments         ProjectAssignment[]
+  managedProjects     Project[]             @relation("ProjectManager")
+  attendance          Attendance[]
+  payrolls            Payroll[]
+  payslips            Payslip[]
+  documents           Document[]
+  expenses            Expense[]
+
+  @@index([status])
+  @@index([department])
+}
+
+model EmployeeBankAccount {
+  id            String    @id @default(cuid())
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  bankName      String
+  accountHolder String
+  accountNumber String
+  ifsc          String
+  branch        String?
+  isPrimary     Boolean   @default(true)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  payrolls      Payroll[]
+
+  @@index([employeeId])
+}
+
+// ───────────────────────────── Salary ─────────────────────────────
+
+/// One immutable version of an employee's pay. Only `effectiveTo` is ever written after
+/// creation, and only by a revision closing it.
+model SalaryStructure {
+  id               String    @id @default(cuid())
+  employeeId       String
+  employee         Employee  @relation(fields: [employeeId], references: [id])
+  annualCtc        Decimal   @db.Decimal(14, 2)
+  monthlyCtc       Decimal   @db.Decimal(14, 2)
+  basic            Decimal   @db.Decimal(14, 2)
+  hra              Decimal   @db.Decimal(14, 2)
+  specialAllowance Decimal   @db.Decimal(14, 2)
+  otherAllowances  Decimal   @default(0) @db.Decimal(14, 2)
+  bonus            Decimal   @default(0) @db.Decimal(14, 2)
+  employerPf       Decimal   @default(0) @db.Decimal(14, 2)
+  gratuity         Decimal   @default(0) @db.Decimal(14, 2)
+  effectiveFrom    DateTime  @db.Date
+  effectiveTo      DateTime? @db.Date
+  notes            String?
+  createdById      String?
+  createdBy        User?     @relation("SalaryCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime  @default(now())
+
+  revision SalaryRevision? @relation("RevisionTo")
+  revisedFrom SalaryRevision[] @relation("RevisionFrom")
+  payrolls Payroll[]
+
+  @@index([employeeId, effectiveFrom])
+}
+
+model SalaryRevision {
+  id              String           @id @default(cuid())
+  employeeId      String
+  employee        Employee         @relation(fields: [employeeId], references: [id])
+  fromStructureId String?
+  fromStructure   SalaryStructure? @relation("RevisionFrom", fields: [fromStructureId], references: [id])
+  toStructureId   String           @unique
+  toStructure     SalaryStructure  @relation("RevisionTo", fields: [toStructureId], references: [id])
+  previousCtc     Decimal?         @db.Decimal(14, 2)
+  newCtc          Decimal          @db.Decimal(14, 2)
+  changePercent   Decimal?         @db.Decimal(7, 2)
+  reason          String?
+  effectiveFrom   DateTime         @db.Date
+  revisedById     String?
+  revisedBy       User?            @relation("SalaryRevisedBy", fields: [revisedById], references: [id])
+  createdAt       DateTime         @default(now())
+
+  @@index([employeeId])
+}
+
+// ───────────────────────────── Business ─────────────────────────────
+
+enum CompanyType {
+  ENTERPRISE
+  MID_MARKET
+  STARTUP
+  AGENCY
+  GOVERNMENT
+  OTHER
+}
+
+enum CompanyStatus {
+  ACTIVE
+  ON_HOLD
+  INACTIVE
+}
+
+enum PaymentTerms {
+  IMMEDIATE
+  NET_15
+  NET_30
+  NET_45
+  NET_60
+  CUSTOM
+}
+
+model Company {
+  id                 String        @id @default(cuid())
+  name               String
+  legalName          String?
+  type               CompanyType   @default(ENTERPRISE)
+  billingContactName String?
+  billingEmail       String?
+  phone              String?
+  address            String?
+  gstNumber          String?
+  pan                String?
+  paymentTerms       PaymentTerms  @default(NET_30)
+  customPaymentDays  Int?
+  currency           String        @default("INR")
+  contractStart      DateTime?     @db.Date
+  contractEnd        DateTime?     @db.Date
+  status             CompanyStatus @default(ACTIVE)
+  notes              String?
+  deletedAt          DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  contacts  CompanyContact[]
+  projects  Project[]
+  invoices  Invoice[]
+  payments  Payment[]
+  documents Document[]
+
+  @@index([status])
+}
+
+model CompanyContact {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  designation String?
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+enum BillingType {
+  MONTHLY
+  HOURLY
+  FIXED
+  MILESTONE
+  CUSTOM
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+model Project {
+  id                   String        @id @default(cuid())
+  name                 String
+  code                 String        @unique
+  companyId            String
+  company              Company       @relation(fields: [companyId], references: [id])
+  managerId            String?
+  manager              Employee?     @relation("ProjectManager", fields: [managerId], references: [id])
+  startDate            DateTime      @db.Date
+  endDate              DateTime?     @db.Date
+  billingType          BillingType   @default(MONTHLY)
+  monthlyBillingAmount Decimal?      @db.Decimal(14, 2)
+  hourlyRate           Decimal?      @db.Decimal(14, 2)
+  taxPercent           Decimal       @default(18) @db.Decimal(5, 2)
+  currency             String        @default("INR")
+  paymentTerms         PaymentTerms  @default(NET_30)
+  customPaymentDays    Int?
+  status               ProjectStatus @default(ACTIVE)
+  description          String?
+  deletedAt            DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  assignments ProjectAssignment[]
+  invoices    Invoice[]
+  payments    Payment[]
+  expenses    Expense[]
+  documents   Document[]
+
+  @@index([companyId])
+  @@index([status])
+}
+
+enum AssignmentStatus {
+  PLANNED
+  ACTIVE
+  ENDED
+}
+
+/// The employee ↔ project link. The company is always reached through the project, never copied.
+model ProjectAssignment {
+  id                String           @id @default(cuid())
+  employeeId        String
+  employee          Employee         @relation(fields: [employeeId], references: [id])
+  projectId         String
+  project           Project          @relation(fields: [projectId], references: [id])
+  role              String
+  startDate         DateTime         @db.Date
+  endDate           DateTime?        @db.Date
+  allocationPercent Int              @default(100)
+  billingRate       Decimal?         @db.Decimal(14, 2)
+  employeeCost      Decimal?         @db.Decimal(14, 2)
+  status            AssignmentStatus @default(ACTIVE)
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([employeeId])
+  @@index([projectId])
+}
+
+// ───────────────────────────── Billing & receipts ─────────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNumber  String        @unique
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id])
+  projectId      String?
+  project        Project?      @relation(fields: [projectId], references: [id])
+  billingMonth   String?       @db.Char(7)
+  invoiceDate    DateTime      @db.Date
+  dueDate        DateTime      @db.Date
+  currency       String        @default("INR")
+  /// Rate to the base currency (INR). Reports aggregate `amount × exchangeRate`.
+  exchangeRate   Decimal       @default(1) @db.Decimal(12, 6)
+  subtotal       Decimal       @db.Decimal(14, 2)
+  taxPercent     Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(14, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(14, 2)
+  total          Decimal       @db.Decimal(14, 2)
+  /// Sum of settled amounts from received/reconciled payments, kept in step by the payment service.
+  amountSettled  Decimal       @default(0) @db.Decimal(14, 2)
+  paymentTerms   PaymentTerms  @default(NET_30)
+  status         InvoiceStatus @default(DRAFT)
+  sentAt         DateTime?
+  notes          String?
+  createdById    String?
+  createdBy      User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@index([companyId])
+  @@index([projectId, billingMonth])
+  @@index([status])
+  @@index([billingMonth])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(14, 2)
+  amount      Decimal @db.Decimal(14, 2)
+  sortOrder   Int     @default(0)
+}
+
+enum PaymentMethod {
+  NEFT
+  RTGS
+  IMPS
+  WIRE
+  UPI
+  CHEQUE
+  CASH
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  RECEIVED
+  FAILED
+  RECONCILED
+}
+
+/// Money actually received from a client.
+/// amountReceived is what the payment settles against the invoice (TDS included);
+/// bankCredit is what reached the bank = amountReceived − tdsDeducted − otherDeduction.
+model Payment {
+  id             String        @id @default(cuid())
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id])
+  projectId      String?
+  project        Project?      @relation(fields: [projectId], references: [id])
+  invoiceId      String?
+  invoice        Invoice?      @relation(fields: [invoiceId], references: [id])
+  paymentDate    DateTime      @db.Date
+  amountReceived Decimal       @db.Decimal(14, 2)
+  tdsDeducted    Decimal       @default(0) @db.Decimal(14, 2)
+  otherDeduction Decimal       @default(0) @db.Decimal(14, 2)
+  bankCredit     Decimal       @db.Decimal(14, 2)
+  currency       String        @default("INR")
+  exchangeRate   Decimal       @default(1) @db.Decimal(12, 6)
+  method         PaymentMethod @default(NEFT)
+  bankAccount    String?
+  transactionRef String?
+  utr            String?
+  status         PaymentStatus @default(RECEIVED)
+  notes          String?
+  createdById    String?
+  createdBy      User?         @relation("PaymentRecordedBy", fields: [createdById], references: [id])
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([companyId])
+  @@index([invoiceId])
+  @@index([paymentDate])
+}
+
+// ───────────────────────────── Payroll ─────────────────────────────
+
+model Attendance {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  month         String   @db.Char(7)
+  workingDays   Decimal  @db.Decimal(4, 1)
+  presentDays   Decimal  @db.Decimal(4, 1)
+  paidLeave     Decimal  @default(0) @db.Decimal(4, 1)
+  unpaidLeave   Decimal  @default(0) @db.Decimal(4, 1)
+  lopDays       Decimal  @default(0) @db.Decimal(4, 1)
+  holidays      Decimal  @default(0) @db.Decimal(4, 1)
+  overtimeHours Decimal  @default(0) @db.Decimal(6, 2)
+  leaveBalance  Decimal? @db.Decimal(5, 1)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([employeeId, month])
+  @@index([month])
+}
+
+enum DeductionCode {
+  PF
+  PT
+  TDS
+  ESI
+  LOAN
+  OTHER
+}
+
+enum DeductionCalc {
+  FIXED
+  PERCENT_OF_BASIC
+  PERCENT_OF_GROSS
+  MANUAL
+}
+
+/// Finance-configurable statutory rules (PF, PT, ESI …) applied when a payroll is calculated.
+model DeductionRule {
+  id          String        @id @default(cuid())
+  code        DeductionCode
+  name        String
+  calcType    DeductionCalc
+  value       Decimal       @default(0) @db.Decimal(10, 4)
+  minGross    Decimal?      @db.Decimal(14, 2)
+  maxGross    Decimal?      @db.Decimal(14, 2)
+  capAmount   Decimal?      @db.Decimal(14, 2)
+  isActive    Boolean       @default(true)
+  description String?
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+/// Per-employee monthly deductions such as projected TDS or a loan EMI.
+model RecurringDeduction {
+  id         String        @id @default(cuid())
+  employeeId String
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  code       DeductionCode
+  label      String
+  amount     Decimal       @db.Decimal(14, 2)
+  startMonth String        @db.Char(7)
+  endMonth   String?       @db.Char(7)
+  isActive   Boolean       @default(true)
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([employeeId])
+}
+
+enum PayrollStatus {
+  DRAFT
+  CALCULATED
+  APPROVED
+  PROCESSING
+  PAID
+  CANCELLED
+}
+
+enum SalaryPaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  ON_HOLD
+}
+
+model Payroll {
+  id                String              @id @default(cuid())
+  employeeId        String
+  employee          Employee            @relation(fields: [employeeId], references: [id])
+  salaryStructureId String
+  salaryStructure   SalaryStructure     @relation(fields: [salaryStructureId], references: [id])
+  month             String              @db.Char(7)
+  status            PayrollStatus       @default(DRAFT)
+
+  workingDays   Decimal @default(0) @db.Decimal(4, 1)
+  paidDays      Decimal @default(0) @db.Decimal(4, 1)
+  lopDays       Decimal @default(0) @db.Decimal(4, 1)
+  overtimeHours Decimal @default(0) @db.Decimal(6, 2)
+
+  grossEarnings   Decimal @default(0) @db.Decimal(14, 2)
+  totalDeductions Decimal @default(0) @db.Decimal(14, 2)
+  netSalary       Decimal @default(0) @db.Decimal(14, 2)
+  employerCost    Decimal @default(0) @db.Decimal(14, 2)
+
+  // What actually reached the employee's bank — deliberately separate from netSalary.
+  actualBankCredit Decimal?            @db.Decimal(14, 2)
+  bankCreditDate   DateTime?           @db.Date
+  bankAccountId    String?
+  bankAccount      EmployeeBankAccount? @relation(fields: [bankAccountId], references: [id])
+  transactionRef   String?
+  paymentMode      String?
+  paymentStatus    SalaryPaymentStatus @default(PENDING)
+
+  calculatedAt DateTime?
+  approvedAt   DateTime?
+  approvedById String?
+  approvedBy   User?     @relation("PayrollApprovedBy", fields: [approvedById], references: [id])
+  paidAt       DateTime?
+  notes        String?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items      PayrollItem[]
+  deductions PayrollDeduction[]
+  payslip    Payslip?
+
+  @@unique([employeeId, month])
+  @@index([month, status])
+}
+
+enum EarningCode {
+  BASIC
+  HRA
+  SPECIAL
+  OTHER
+  BONUS
+  OVERTIME
+  ARREARS
+  REIMBURSEMENT
+  CUSTOM
+}
+
+model PayrollItem {
+  id        String      @id @default(cuid())
+  payrollId String
+  payroll   Payroll     @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  code      EarningCode
+  label     String
+  amount    Decimal     @db.Decimal(14, 2)
+  sortOrder Int         @default(0)
+}
+
+model PayrollDeduction {
+  id        String        @id @default(cuid())
+  payrollId String
+  payroll   Payroll       @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  code      DeductionCode
+  label     String
+  amount    Decimal       @db.Decimal(14, 2)
+  ruleId    String?
+  isManual  Boolean       @default(false)
+  sortOrder Int           @default(0)
+}
+
+model Payslip {
+  id            String    @id @default(cuid())
+  payslipNumber String    @unique
+  payrollId     String    @unique
+  payroll       Payroll   @relation(fields: [payrollId], references: [id])
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  month         String    @db.Char(7)
+  /// Everything printed on the slip, frozen at generation time.
+  snapshot      Json
+  filePath      String?
+  generatedAt   DateTime  @default(now())
+  generatedById String?
+  generatedBy   User?     @relation("PayslipGeneratedBy", fields: [generatedById], references: [id])
+  emailedAt     DateTime?
+  emailedTo     String?
+  deletedAt     DateTime?
+
+  @@index([employeeId])
+  @@index([month])
+}
+
+// ───────────────────────────── Expenses & documents ─────────────────────────────
+
+enum ExpenseType {
+  TRAVEL
+  ACCOMMODATION
+  MEALS
+  SOFTWARE
+  HARDWARE
+  TRAINING
+  COMMUNICATION
+  CLIENT_ENTERTAINMENT
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+model Expense {
+  id              String        @id @default(cuid())
+  employeeId      String?
+  employee        Employee?     @relation(fields: [employeeId], references: [id])
+  projectId       String?
+  project         Project?      @relation(fields: [projectId], references: [id])
+  type            ExpenseType
+  amount          Decimal       @db.Decimal(14, 2)
+  currency        String        @default("INR")
+  date            DateTime      @db.Date
+  description     String
+  receiptPath     String?
+  status          ExpenseStatus @default(PENDING)
+  approvedById    String?
+  approvedBy      User?         @relation("ExpenseApprovedBy", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  rejectionReason String?
+  paidDate        DateTime?     @db.Date
+  submittedById   String?
+  submittedBy     User?         @relation("ExpenseSubmittedBy", fields: [submittedById], references: [id])
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([projectId])
+  @@index([employeeId])
+  @@index([status])
+}
+
+enum DocumentType {
+  RESUME
+  OFFER_LETTER
+  EMPLOYMENT_AGREEMENT
+  ID_PROOF
+  PAN
+  BANK_PROOF
+  EXPERIENCE_LETTER
+  RELIEVING_LETTER
+  CONTRACT
+  PURCHASE_ORDER
+  OTHER
+}
+
+/// Files attached to an employee, company or project. Stored outside /public and only
+/// served through an authorised route.
+model Document {
+  id           String       @id @default(cuid())
+  employeeId   String?
+  employee     Employee?    @relation(fields: [employeeId], references: [id])
+  companyId    String?
+  company      Company?     @relation(fields: [companyId], references: [id])
+  projectId    String?
+  project      Project?     @relation(fields: [projectId], references: [id])
+  type         DocumentType
+  title        String
+  fileName     String
+  filePath     String
+  mimeType     String
+  size         Int
+  expiryDate   DateTime?    @db.Date
+  verified     Boolean      @default(false)
+  verifiedById String?
+  verifiedBy   User?        @relation("DocumentVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+  notes        String?
+  uploadedById String?
+  uploadedBy   User?        @relation("DocumentUploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime     @default(now())
+  deletedAt    DateTime?
+
+  @@index([employeeId])
+  @@index([companyId])
+  @@index([projectId])
+}
+
+// ───────────────────────────── System ─────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  userName  String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+enum NotificationType {
+  INVOICE_OVERDUE
+  PAYMENT_RECEIVED
+  PARTIAL_PAYMENT
+  CONTRACT_EXPIRING
+  PROJECT_ENDING
+  EMPLOYEE_JOINING
+  EMPLOYEE_LEAVING
+  PAYROLL_PENDING_APPROVAL
+  PAYSLIP_GENERATED
+  EXPENSE_SUBMITTED
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  link      String?
+  /// Stops the same alert (e.g. "INV-0042 is overdue") being raised twice for one user.
+  dedupeKey String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+model Setting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}

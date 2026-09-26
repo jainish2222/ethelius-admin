@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+# public Amazon RDS CA bundle — the app needs it at runtime
+!/certs/rds-global-bundle.pem
 
 # debug
 npm-debug.log*
@@ -39,3 +41,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+!.env.example
+
+# generated prisma client
+/src/generated/
+
+# uploaded files and generated payslips
+/storage/

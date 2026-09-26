@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: ethelius-admin-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ethelius
+      POSTGRES_PASSWORD: ethelius_dev
+      POSTGRES_DB: ethelius_admin
+    ports:
+      - "5433:5432"
+    volumes:
+      - ethelius-admin-pg:/var/lib/postgresql/data
+
+volumes:
+  ethelius-admin-pg:
