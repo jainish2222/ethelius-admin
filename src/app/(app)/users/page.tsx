@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useForm, type Resolver } from "react-hook-form";
+import Link from "next/link";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Lock, Pencil, Plus, Save } from "lucide-react";
 import { cn } from "cn";
@@ -88,6 +89,7 @@ function UserDrawer({ value, onClose }: { value: User | "new" | null; onClose: (
   const employees = useEmployeeOptions(true, !!value);
   // One form serves create and edit; the schema switches with the mode.
   const form = useForm<Record<string, unknown>>({ resolver: zodResolver(editing ? userUpdateSchema : userCreateSchema) as unknown as Resolver<Record<string, unknown>> });
+  const needsEmployee = useWatch({ control: form.control, name: "role" }) === "EMPLOYEE";
   useEffect(() => {
     if (!value) return;
     form.reset(editing
@@ -108,7 +110,11 @@ function UserDrawer({ value, onClose }: { value: User | "new" | null; onClose: (
           <TextField name="name" label="Name" required full />
           {!editing && <TextField name="email" label="Email" type="email" required full autoComplete="off" />}
           <SelectField name="role" label="Role" options={ROLE_OPTIONS} required disabled={editing?.id === me.id} />
-          <ComboField name="employeeId" label="Linked employee" clearable placeholder="None" options={(employees.data ?? []).map((e) => ({ value: e.id, label: e.fullName, description: e.employeeCode }))} />
+          <ComboField name="employeeId" label="Linked employee" clearable placeholder={needsEmployee ? "Select employee" : "None"} required={needsEmployee} loading={employees.isLoading}
+            options={(employees.data ?? []).map((e) => ({ value: e.id, label: e.fullName, description: e.employeeCode }))}
+            hint={needsEmployee && employees.data?.length === 0
+              ? <>No employee records yet. <Link href="/employees?new=1" className="font-medium text-primary underline-offset-2 hover:underline">Add the employee</Link> first, then create their login.</>
+              : needsEmployee ? "Required for the Employee role" : "Optional"} />
           <TextField name="password" label={editing ? "Reset password" : "Password"} type="password" required={!editing} full autoComplete="new-password" hint="At least 10 characters with letters and numbers" />
           <SwitchField name="isActive" label="Active" hint="Inactive users cannot sign in" full />
         </FormSection>

@@ -13,6 +13,11 @@ const password = z
   .max(200)
   .refine((p) => /[A-Za-z]/.test(p) && /\d/.test(p), "Use letters and numbers");
 
+// Employee logins only see their own data, so they need an employee record to scope it to.
+const employeeLinked = (v: { role: string; employeeId?: string | null }, ctx: z.RefinementCtx) => {
+  if (v.role === "EMPLOYEE" && !v.employeeId) ctx.addIssue({ code: "custom", path: ["employeeId"], message: "Pick the employee this login belongs to" });
+};
+
 export const userCreateSchema = z.object({
   name: reqText(120),
   email,
@@ -20,7 +25,7 @@ export const userCreateSchema = z.object({
   employeeId: optId,
   password,
   isActive: z.boolean().default(true),
-});
+}).superRefine(employeeLinked);
 
 export const userUpdateSchema = z.object({
   name: reqText(120),
@@ -28,7 +33,7 @@ export const userUpdateSchema = z.object({
   employeeId: optId,
   isActive: z.boolean(),
   password: z.union([password, z.literal("")]).optional(),
-});
+}).superRefine(employeeLinked);
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
