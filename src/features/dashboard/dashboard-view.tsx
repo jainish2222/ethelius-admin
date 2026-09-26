@@ -13,11 +13,17 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card";
 import { CardBody, CardHead, GlassCard } from "@/components/shared/glass-card";
 import { ActivityFeed } from "@/components/shared/activity-feed";
 import { ErrorState } from "@/components/shared/states";
-import { RankBars, RevenueChart, TrendChart } from "@/components/charts/charts";
+import dynamic from "next/dynamic";
 import { useApi } from "@/hooks/use-api";
 import { formatCompact, formatMoney } from "@/lib/money";
 import { formatDate, monthLabel } from "@/lib/dates";
 import type { AuditRow } from "@/features/activity/describe";
+
+// recharts is ~110 KB gzipped: load it after the stat cards so the dashboard paints first.
+const chartSkeleton = () => <Skeleton className="h-[290px] rounded-xl" />;
+const RevenueChart = dynamic(() => import("@/components/charts/charts").then((m) => m.RevenueChart), { ssr: false, loading: chartSkeleton });
+const TrendChart = dynamic(() => import("@/components/charts/charts").then((m) => m.TrendChart), { ssr: false, loading: chartSkeleton });
+const RankBars = dynamic(() => import("@/components/charts/charts").then((m) => m.RankBars), { ssr: false, loading: chartSkeleton });
 
 type Dashboard = {
   month: string;
